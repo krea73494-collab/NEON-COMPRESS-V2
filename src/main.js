@@ -13,7 +13,7 @@ for(let i=0;i<26;i++){
  dot.style.setProperty('--spark',i%3===0?'#ffffff':i%3===1?'#ffcf87':'#ff526b');
  dot.style.setProperty('--twinkle',(0.55+(i%6)*0.18)+'s');
  dot.style.setProperty('--delay',(-i*.12)+'s');
- ringSparks.appendChild(dot);
+ if (ringSparks) ringSparks.appendChild(dot);
 }
 
 function page(n){screens.forEach((id,i)=>$(id).classList.toggle('hidden',i!==n));document.querySelectorAll('.step').forEach((el,i)=>el.classList.toggle('active',i<=n));window.scrollTo({top:0,behavior:'smooth'});}
