@@ -46,7 +46,7 @@
 <section class="hero"><div class="eyebrow">NEON</div><h1><span>QUALITY</span><br>COMPRESS</h1><p>Premium video optimization · NEON COMPRESS V2</p></section>
 <div class="steps" aria-label="Progress"><div class="step active"></div><div class="step"></div><div class="step"></div></div>
 <section id="uploadScreen" class="screen">
-<div class="card"><div class="row"><div><div class="label">DAILY LIMIT</div><div class="count">UNLIMITED <small>local processing</small></div></div><button class="mini" id="unlimited" type="button">✦ MAX QUALITY</button></div></div>
+<div class="card"><div class="row"><div><div class="label">DAILY LIMIT</div><div class="count"><span id="dailyRemaining">Checking…</span> <small>free compressions left today</small></div></div><button class="mini" id="unlimited" type="button">✦ DAILY LIMIT</button></div></div>
 <div class="card"><div class="label">01 / GET STARTED</div><h2>Choose your video</h2><p class="sub">Select an MP4 video to optimize without re-encoding.</p><div class="drop" id="drop"><input id="videoInput" type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" aria-label="Choose a video"><div><span class="upload-icon">↑</span><strong>Tap to choose your video</strong><small>MP4, MOV or WEBM · Drag & drop on desktop</small></div></div><div class="badge">PLEASE UPLOAD YOUR VIDEO IN 1080P</div><div class="file" id="fileBox"><strong id="fileName"></strong><small id="fileSize"></small><video id="uploadPreview" controls playsinline></video><button class="btn secondary" id="replace" type="button">REPLACE VIDEO</button></div><button class="btn primary" id="start" type="button" disabled>START PROCESSING →</button><p class="note">MAX QUALITY preserves original video and audio streams; TikTok may still recompress uploads.</p><p id="errorMessage" class="note hidden" role="alert" style="color:#ff8fa2;font-weight:700"></p></div>
 </section>
 <section id="processingScreen" class="screen hidden"><div class="card center"><div class="label">02 / PROCESSING</div><h2>Optimizing your video</h2><p class="sub">Preserving original video and audio streams.</p><div class="ring" id="ring"><div class="ring-sparks" aria-hidden="true" id="ringSparks"></div><span id="percentage">0%</span></div><div class="status">PROCESSING VIDEO</div><p class="sub" id="processingName"></p><p class="note">Keep this page open until processing finishes.</p><button class="btn secondary" id="cancel" type="button">BACK TO UPLOAD</button></div></section>
@@ -58,6 +58,36 @@
 import { optimizeVideo } from './src/processing.js';
 (()=>{'use strict';
 const $=id=>document.getElementById(id);let file=null,url=null,timer=null,progress=0,outputUrl=null,outputBlob=null,outputName=null,busy=false;const screens=['uploadScreen','processingScreen','completeScreen'];
+// Supabase daily quota (Myanmar calendar day). Never put service-role keys in browser code.
+const DAILY_API='https://tgeiwdoauotulsisqada.supabase.co/functions/v1/neon-daily-limit';
+const GUEST_KEY='neon_compress_guest_id';
+let dailyRemaining=null;
+function guestId(){
+ let id=localStorage.getItem(GUEST_KEY);
+ if(!id){id=crypto.randomUUID();localStorage.setItem(GUEST_KEY,id);}
+ return id;
+}
+async function dailyRequest(action){
+ const response=await fetch(DAILY_API,{
+  method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({guest_id:guestId(),action})
+ });
+ if(!response.ok)throw new Error('Daily limit service unavailable ('+response.status+').');
+ const data=await response.json();
+ if(typeof data.remaining!=='number'||typeof data.allowed!=='boolean')throw new Error('Invalid daily limit response.');
+ return data;
+}
+function dailyDisplay(){
+ $('dailyRemaining').textContent=dailyRemaining===null?'Unavailable':dailyRemaining+' / 5';
+ $('start').disabled=busy||!file||dailyRemaining===null||dailyRemaining<=0;
+}
+function dailyError(message){const el=$('errorMessage');el.textContent=message;el.classList.remove('hidden');}
+async function refreshDaily(){
+ try{const data=await dailyRequest('check');dailyRemaining=data.remaining;}
+ catch(err){dailyRemaining=null;dailyError('Could not check daily limit. Please reconnect and try again.');}
+ dailyDisplay();
+}
+
 // Lightweight CSS sparkles surrounding the processing percentage ring.
 const ringSparks=$('ringSparks');
 for(let i=0;i<26;i++){
@@ -72,25 +102,37 @@ for(let i=0;i<26;i++){
 }
 
 function page(n){screens.forEach((id,i)=>$(id).classList.toggle('hidden',i!==n));document.querySelectorAll('.step').forEach((el,i)=>el.classList.toggle('active',i<=n));window.scrollTo({top:0,behavior:'smooth'});}
-function setFile(f){if(!f)return;const valid=['video/mp4','video/quicktime','video/webm'];if(!valid.includes(f.type)&&!(/\.(mp4|mov|webm)$/i).test(f.name)){alert('Please choose an MP4, MOV or WEBM video.');return;}if(url)URL.revokeObjectURL(url);file=f;url=URL.createObjectURL(f);$('fileName').textContent=f.name;$('fileSize').textContent=(f.size/1048576).toFixed(1)+' MB';$('uploadPreview').src=url;$('fileBox').style.display='block';$('start').disabled=false;$('errorMessage').classList.add('hidden');}
+function setFile(f){if(!f)return;const valid=['video/mp4','video/quicktime','video/webm'];if(!valid.includes(f.type)&&!(/\.(mp4|mov|webm)$/i).test(f.name)){alert('Please choose an MP4, MOV or WEBM video.');return;}if(url)URL.revokeObjectURL(url);file=f;url=URL.createObjectURL(f);$('fileName').textContent=f.name;$('fileSize').textContent=(f.size/1048576).toFixed(1)+' MB';$('uploadPreview').src=url;$('fileBox').style.display='block';$('errorMessage').classList.add('hidden');dailyDisplay();}
 function stop(){if(timer!==null){clearInterval(timer);timer=null;}}
-function reset(){stop();if(outputUrl)URL.revokeObjectURL(outputUrl);outputUrl=null;outputBlob=null;outputName=null;$('uploadPreview').pause();$('completePreview').pause();$('uploadPreview').removeAttribute('src');$('completePreview').removeAttribute('src');$('uploadPreview').load();$('completePreview').load();if(url)URL.revokeObjectURL(url);url=null;file=null;$('videoInput').value='';$('fileBox').style.display='none';$('start').disabled=true;progress=0;page(0);}
+function reset(){stop();if(outputUrl)URL.revokeObjectURL(outputUrl);outputUrl=null;outputBlob=null;outputName=null;$('uploadPreview').pause();$('completePreview').pause();$('uploadPreview').removeAttribute('src');$('completePreview').removeAttribute('src');$('uploadPreview').load();$('completePreview').load();if(url)URL.revokeObjectURL(url);url=null;file=null;$('videoInput').value='';$('fileBox').style.display='none';$('start').disabled=true;progress=0;page(0);void refreshDaily();}
 $('continue').addEventListener('click',()=>{$('welcome').classList.add('hidden');sessionStorage.setItem('neon-welcomed','1');});if(sessionStorage.getItem('neon-welcomed')==='1')$('welcome').classList.add('hidden');
 $('videoInput').addEventListener('change',e=>setFile(e.target.files[0]));$('replace').addEventListener('click',()=>$('videoInput').click());
 const drop=$('drop');drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('drag');});drop.addEventListener('dragleave',()=>drop.classList.remove('drag'));drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('drag');setFile(e.dataTransfer.files[0]);});
-$('unlimited').addEventListener('click',()=>alert('Processing is performed locally in your browser. No daily limit is enforced.'));
+$('unlimited').addEventListener('click',()=>alert('Free plan: 5 successful compressions per Myanmar day. Guest-based limit.'));
+void refreshDaily();
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!busy)void refreshDaily();});
 $('start').addEventListener('click',async()=>{
  if(!file||busy)return;
  if(!/\.mp4$/i.test(file.name)){const el=$('errorMessage');el.textContent='MAX QUALITY supports MP4 input only. Please select an MP4 video.';el.classList.remove('hidden');return;}
- busy=true;progress=0;$('processingName').textContent=file.name;$('percentage').textContent='0%';$('ring').style.setProperty('--progress','0%');page(1);
+ // Check the server before beginning. Quota is consumed only after successful optimization.
+ busy=true;dailyDisplay();
+ try{
+  const quota=await dailyRequest('check');dailyRemaining=quota.remaining;dailyDisplay();
+  if(!quota.allowed||quota.remaining<=0){dailyError('Daily free limit reached (5/5). Try again after midnight Myanmar time.');busy=false;dailyDisplay();return;}
+ }catch(err){dailyError('Cannot verify daily limit. Check your connection and try again.');busy=false;dailyDisplay();return;}
+ progress=0;$('processingName').textContent=file.name;$('percentage').textContent='0%';$('ring').style.setProperty('--progress','0%');page(1);
  $('cancel').disabled=true;
  try {
   const result=await optimizeVideo(file,(value)=>{progress=value;$('percentage').textContent=value+'%';$('ring').style.setProperty('--progress',value+'%');});
+  // The optimization succeeded. Consume one credit before releasing the output.
+  const used=await dailyRequest('use');
+  dailyRemaining=used.remaining;dailyDisplay();
+  if(!used.allowed){throw new Error('Daily free limit reached. This output cannot be released.');}
   if(outputUrl)URL.revokeObjectURL(outputUrl);
   outputBlob=result.blob;outputName=result.name;outputUrl=URL.createObjectURL(outputBlob);
   $('completePreview').src=outputUrl;page(2);
  } catch(err){const el=$('errorMessage');el.textContent='Video optimization failed: '+(err instanceof Error?err.message:String(err));el.classList.remove('hidden');page(0);}
- finally{busy=false;$('cancel').disabled=false;}
+ finally{busy=false;$('cancel').disabled=false;dailyDisplay();}
 });
 $('download').addEventListener('click',()=>{
  if(!outputBlob||!outputName)return;
