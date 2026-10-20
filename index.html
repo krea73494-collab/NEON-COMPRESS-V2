@@ -39,6 +39,8 @@
 
 /* Account UI — independent from video processing */
 .account-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}.account-actions button{width:auto;margin:0;padding:9px 12px;font-size:11px}.account-panel{max-width:620px;margin:0 auto 16px}.account-form{display:grid;gap:10px;margin-top:12px}.account-form input{width:100%;padding:13px 14px;background:#12090e;border:1px solid #ffffff44;color:#fff;border-radius:12px;font-size:14px}.account-form label{text-align:left;color:#eed5dc;font-size:12px}.account-form .btn{margin-top:2px}.account-status{font-size:12px;line-height:1.6;color:#ffbec7;overflow-wrap:anywhere}.account-email{overflow-wrap:anywhere;color:#ffb4c2;font-size:12px}.account-panel .mini{margin:4px}.account-panel button:focus-visible,.account-panel input:focus-visible{outline:2px solid #ff879a;outline-offset:2px}@media(max-width:500px){.top{flex-wrap:wrap}.account-actions{width:100%;justify-content:flex-start}}
+
+.pay-grid{display:grid;gap:10px;margin:12px 0}.pay-grid label{font-size:12px;color:#eed5dc}.pay-grid select,.pay-grid input{width:100%;padding:13px;border:1px solid #ffffff44;border-radius:12px;background:#1b0c12;color:white}.pay-grid input[type=file]{font-size:12px}.pay-grid select option{background:#1b0c12}.pay-help{color:#f2c5d0;font-size:12px;line-height:1.65}.pay-requests{font-size:12px;line-height:1.8;overflow-wrap:anywhere}.pay-requests>div{border-bottom:1px solid #ffffff22;padding:8px 0}
 </style>
 </head>
 <body>
@@ -51,9 +53,11 @@
 <div class="row"><div><div class="label">NEON ACCOUNT</div><h2 style="margin:8px 0">Paid Points Account</h2></div><button class="mini" id="accountClose" type="button">CLOSE ✕</button></div>
 <p class="sub">Free plan does not require login. Sign in to keep paid points linked to your account.</p>
 <div id="accountSignedOut"><form class="account-form" id="accountForm"><label for="accountEmail">Email</label><input id="accountEmail" type="email" autocomplete="email" required placeholder="you@example.com"><label for="accountPassword">Password (at least 8 characters)</label><input id="accountPassword" type="password" autocomplete="current-password" minlength="8" required placeholder="Password"><button class="btn primary" id="loginBtn" type="submit">LOGIN</button><button class="btn secondary" id="registerBtn" type="button">CREATE ACCOUNT</button></form></div>
-<div id="accountSignedIn" class="hidden"><p class="account-email" id="accountIdentity"></p><div class="count"><span id="accountPoints">—</span> <small>Points balance</small></div><p class="note">Points purchases and deductions are not enabled yet.</p><button class="btn secondary" id="logoutBtn" type="button">LOG OUT</button></div>
+<div id="accountSignedIn" class="hidden"><p class="account-email" id="accountIdentity"></p><div class="count"><span id="accountPoints">—</span> <small>Points balance</small></div><p class="note">Points purchases and deductions are not enabled yet.</p><button class="btn primary" id="buyPointsBtn" type="button">💎 BUY POINTS</button><button class="btn secondary" id="logoutBtn" type="button">LOG OUT</button></div>
 <p class="account-status" id="accountStatus" role="status" aria-live="polite"></p>
 </section>
+
+<section class="card account-panel hidden" id="paymentPanel" aria-label="Buy points"><div class="row"><h2>💎 BUY POINTS</h2><button class="mini" type="button" id="paymentClose">CLOSE ✕</button></div><p class="pay-help">Sign in to buy points. Transfer only after confirming the recipient with NEON Support. Your payment is reviewed manually; submitting a receipt does not add points automatically.</p><form id="paymentForm" class="pay-grid"><label for="payPackage">Points package</label><select id="payPackage" required><option value="100">100 Points — 3,000 MMK</option><option value="200">200 Points — 6,000 MMK</option><option value="500">500 Points — 15,000 MMK</option><option value="1000">1000 Points — 30,000 MMK</option></select><label for="payMethod">Payment method</label><select id="payMethod" required><option>KBZPay</option><option>uabpay</option><option>Wave Money</option></select><p class="pay-help">Payment recipient details are not configured yet. Contact <a href="https://t.me/neon9984xx" target="_blank" rel="noopener noreferrer" style="color:#ff9cad">@neon9984xx</a> to verify the correct payment account before transferring.</p><label for="payReference">Transaction reference</label><input id="payReference" required minlength="4" maxlength="100" autocomplete="off" placeholder="Transaction ID"><label for="payReceipt">Receipt image (JPG / PNG / WebP, max 5 MB)</label><input id="payReceipt" type="file" accept="image/jpeg,image/png,image/webp" required><button id="paySubmit" class="btn primary" type="submit">SUBMIT PAYMENT</button></form><p id="payStatus" class="account-status" role="status" aria-live="polite"></p><h3>My payment requests</h3><button type="button" id="payRefresh" class="mini">REFRESH STATUS</button><div id="payHistory" class="pay-requests"></div></section>
 <div class="steps" aria-label="Progress"><div class="step active"></div><div class="step"></div><div class="step"></div></div>
 <section id="uploadScreen" class="screen">
 <div class="card"><div class="row"><div><div class="label">DAILY LIMIT</div><div class="count"><span id="dailyRemaining">Checking…</span> <small>free compressions left today</small></div></div><button class="mini" id="unlimited" type="button">✦ DAILY LIMIT</button></div><button class="mini" id="showGuestId" type="button" style="margin-top:12px">MY GUEST ID · COPY</button><p id="guestIdMessage" class="note hidden" role="status" style="overflow-wrap:anywhere;text-align:left"></p></div>
@@ -265,6 +269,45 @@ byId('logoutBtn').addEventListener('click',async()=>{
  lock(true);
  try{const {error}=await client.auth.signOut();if(error)throw error;status('Logged out.');}catch(e){status('Logout failed: '+e.message);}finally{lock(false);}
 });
+
+// Payment UI: separate from the existing video-processing script.
+const paymentPanel=byId('paymentPanel');
+const payMessage=msg=>{byId('payStatus').textContent=msg;};
+byId('buyPointsBtn').addEventListener('click',()=>{paymentPanel.classList.remove('hidden');paymentPanel.scrollIntoView({behavior:'smooth'});void loadPayments();});
+byId('paymentClose').addEventListener('click',()=>paymentPanel.classList.add('hidden'));
+byId('payRefresh').addEventListener('click',()=>void loadPayments());
+async function loadPayments(){
+ if(!client||!currentUser)return;
+ const id=currentUser.id;const area=byId('payHistory');area.textContent='Loading…';
+ const {data,error}=await client.from('neon_payment_requests').select('id,points,amount_mmk,payment_method,status,created_at').eq('user_id',id).order('created_at',{ascending:false}).limit(20);
+ if(currentUser?.id!==id)return;area.replaceChildren();
+ if(error){area.textContent='Unable to load requests: '+error.message;return;}
+ if(!data?.length){area.textContent='No payment requests yet.';return;}
+ for(const row of data){const div=document.createElement('div');div.textContent=`${row.points} Points · ${row.amount_mmk} MMK · ${row.payment_method} · ${row.status.toUpperCase()} · ${new Date(row.created_at).toLocaleDateString()}`;area.appendChild(div);}
+}
+byId('paymentForm').addEventListener('submit',async e=>{
+ e.preventDefault();if(!client||!currentUser){payMessage('Please log in first.');return;}
+ const button=byId('paySubmit');if(button.disabled)return;
+ const userId=currentUser.id,file=byId('payReceipt').files[0];
+ const allowed={'image/jpeg':'jpg','image/png':'png','image/webp':'webp'};
+ if(!file||!allowed[file.type]||file.size>5*1024*1024||file.size===0){payMessage('Choose a JPG, PNG or WebP receipt smaller than 5 MB.');return;}
+ button.disabled=true;let uploadedPath=null;
+ try{
+  payMessage('Uploading receipt…');
+  const filename=`${crypto.randomUUID()}.${allowed[file.type]}`;uploadedPath=`${userId}/${filename}`;
+  const {error:uploadError}=await client.storage.from('neon-payment-receipts').upload(uploadedPath,file,{contentType:file.type,upsert:false});
+  if(uploadError)throw uploadError;
+  const {data:{session},error:sessionError}=await client.auth.getSession();
+  if(sessionError||!session?.access_token)throw new Error('Session expired. Please log in again.');
+  payMessage('Submitting payment request…');
+  const response=await fetch(`${SUPABASE_URL}/functions/v1/neon-payment-request`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`,'apikey':SUPABASE_PUBLIC_KEY},body:JSON.stringify({points:Number(byId('payPackage').value),payment_method:byId('payMethod').value,transaction_reference:byId('payReference').value.trim(),receipt_path:uploadedPath})});
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok||!result.success)throw new Error(result.error||`Request failed (${response.status})`);
+  payMessage('Submitted successfully! Status: PENDING. Points will be added only after admin verification.');byId('paymentForm').reset();await loadPayments();
+ }catch(err){payMessage('Submission failed: '+err.message+(uploadedPath?' (If you retry, select the receipt again.)':''));}
+ finally{button.disabled=false;}
+});
+
 if(!configured){status('Account setup pending: Supabase publishable key must be added. Free compression still works.');}
 else{
  try{
