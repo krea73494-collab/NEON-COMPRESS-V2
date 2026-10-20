@@ -4,7 +4,7 @@ This project combines the user-supplied **NEON-V2-PROCESSING-SPARKS.html** inter
 
 ## What is preserved
 - UI layout, fireworks, lanterns, welcome modal, and progress-ring effects.
-- Replit FFmpeg core version `0.12.10` and stream-copy command `-c copy -movflags +faststart`.
+- Replit FFmpeg core version `0.12.10`
 - Original Replit `App.tsx` and `neonMp4Prototype.ts` are archived unchanged in `reference-original/`. The prototype was **not** called by the original App.tsx, so this build uses the actual FFmpeg MAX QUALITY processing path instead.
 
 ## GitHub setup
