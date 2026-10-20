@@ -36,14 +36,24 @@
 @keyframes spark-orbit{to{transform:rotate(360deg)}}
 @keyframes ember-twinkle{from{opacity:.25;filter:brightness(.8);scale:.7}to{opacity:1;filter:brightness(1.6);scale:1.4}}
 @media(prefers-reduced-motion:reduce){.ring .ring-sparks{animation:none}.ring .ring-sparks i{animation:none}}
+
+/* Account UI — independent from video processing */
+.account-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}.account-actions button{width:auto;margin:0;padding:9px 12px;font-size:11px}.account-panel{max-width:620px;margin:0 auto 16px}.account-form{display:grid;gap:10px;margin-top:12px}.account-form input{width:100%;padding:13px 14px;background:#12090e;border:1px solid #ffffff44;color:#fff;border-radius:12px;font-size:14px}.account-form label{text-align:left;color:#eed5dc;font-size:12px}.account-form .btn{margin-top:2px}.account-status{font-size:12px;line-height:1.6;color:#ffbec7;overflow-wrap:anywhere}.account-email{overflow-wrap:anywhere;color:#ffb4c2;font-size:12px}.account-panel .mini{margin:4px}.account-panel button:focus-visible,.account-panel input:focus-visible{outline:2px solid #ff879a;outline-offset:2px}@media(max-width:500px){.top{flex-wrap:wrap}.account-actions{width:100%;justify-content:flex-start}}
 </style>
 </head>
 <body>
 <div class="lantern-sky" id="lanternSky" aria-hidden="true"></div>
 <canvas id="sky" aria-hidden="true"></canvas>
 <main id="app">
-<header class="top"><div class="brand"><span class="mark">✦</span> NEON COMPRESS</div><span class="tag">V2 • VIDEO STUDIO</span></header>
+<header class="top"><div class="brand"><span class="mark">✦</span> NEON COMPRESS</div><div class="account-actions"><span class="tag">V2 • VIDEO STUDIO</span><button class="mini" id="accountToggle" type="button">LOGIN / REGISTER</button></div></header>
 <section class="hero"><div class="eyebrow">NEON</div><h1><span>QUALITY</span><br>COMPRESS</h1><p>Premium video optimization · NEON COMPRESS V2</p></section>
+<section class="card account-panel hidden" id="accountPanel" aria-label="Account">
+<div class="row"><div><div class="label">NEON ACCOUNT</div><h2 style="margin:8px 0">Paid Points Account</h2></div><button class="mini" id="accountClose" type="button">CLOSE ✕</button></div>
+<p class="sub">Free plan does not require login. Sign in to keep paid points linked to your account.</p>
+<div id="accountSignedOut"><form class="account-form" id="accountForm"><label for="accountEmail">Email</label><input id="accountEmail" type="email" autocomplete="email" required placeholder="you@example.com"><label for="accountPassword">Password (at least 8 characters)</label><input id="accountPassword" type="password" autocomplete="current-password" minlength="8" required placeholder="Password"><button class="btn primary" id="loginBtn" type="submit">LOGIN</button><button class="btn secondary" id="registerBtn" type="button">CREATE ACCOUNT</button></form></div>
+<div id="accountSignedIn" class="hidden"><p class="account-email" id="accountIdentity"></p><div class="count"><span id="accountPoints">—</span> <small>Points balance</small></div><p class="note">Points purchases and deductions are not enabled yet.</p><button class="btn secondary" id="logoutBtn" type="button">LOG OUT</button></div>
+<p class="account-status" id="accountStatus" role="status" aria-live="polite"></p>
+</section>
 <div class="steps" aria-label="Progress"><div class="step active"></div><div class="step"></div><div class="step"></div></div>
 <section id="uploadScreen" class="screen">
 <div class="card"><div class="row"><div><div class="label">DAILY LIMIT</div><div class="count"><span id="dailyRemaining">Checking…</span> <small>free compressions left today</small></div></div><button class="mini" id="unlimited" type="button">✦ DAILY LIMIT</button></div><button class="mini" id="showGuestId" type="button" style="margin-top:12px">MY GUEST ID · COPY</button><p id="guestIdMessage" class="note hidden" role="status" style="overflow-wrap:anywhere;text-align:left"></p></div>
@@ -194,6 +204,78 @@ if(!reduced){
 }
 
 })();
+</script>
+
+<script type="module">
+// Public Supabase publishable/anon key only. NEVER use a service_role/secret key here.
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+const SUPABASE_URL = 'https://tgeiwdoauotulsisqada.supabase.co';
+const SUPABASE_PUBLIC_KEY = 'sb_publishable_na406DW2UesACh91V56H3w_qIVK5waR';
+const byId = id => document.getElementById(id);
+const status = message => { byId('accountStatus').textContent = message; };
+const configured = SUPABASE_PUBLIC_KEY !== 'PASTE_SUPABASE_PUBLISHABLE_KEY_HERE';
+let client = null;
+let currentUser = null;
+let pending = false;
+function showPanel(show){byId('accountPanel').classList.toggle('hidden',!show);if(show)byId('accountPanel').scrollIntoView({behavior:'smooth',block:'start'});}
+byId('accountToggle').addEventListener('click',()=>showPanel(byId('accountPanel').classList.contains('hidden')));
+byId('accountClose').addEventListener('click',()=>showPanel(false));
+function lock(value){pending=value;for(const id of ['loginBtn','registerBtn','logoutBtn'])byId(id).disabled=value;}
+function render(user){
+ currentUser=user;
+ byId('accountSignedOut').classList.toggle('hidden',!!user);
+ byId('accountSignedIn').classList.toggle('hidden',!user);
+ byId('accountToggle').textContent=user?'MY ACCOUNT':'LOGIN / REGISTER';
+ byId('accountIdentity').textContent=user?.email||'';
+ if(!user)byId('accountPoints').textContent='—';
+}
+async function refreshPoints(){
+ if(!currentUser||!client)return;
+ const id=currentUser.id;
+ const {data,error}=await client.from('neon_profiles').select('points_balance').eq('user_id',id).maybeSingle();
+ if(currentUser?.id!==id)return;
+ if(error){byId('accountPoints').textContent='Unavailable';status('Could not load points balance: '+error.message);return;}
+ byId('accountPoints').textContent=data?.points_balance??0;
+}
+async function signIn(event){
+ event.preventDefault();if(pending)return;
+ if(!client){status('Account setup pending: add your Supabase publishable key to index.html.');return;}
+ lock(true);status('Signing in…');
+ try{
+  const {error}=await client.auth.signInWithPassword({email:byId('accountEmail').value.trim(),password:byId('accountPassword').value});
+  if(error)throw error;
+  byId('accountPassword').value='';status('Logged in successfully.');
+ }catch(e){status('Login failed: '+e.message);}finally{lock(false);}
+}
+byId('accountForm').addEventListener('submit',signIn);
+byId('registerBtn').addEventListener('click',async()=>{
+ if(pending)return;
+ if(!client){status('Account setup pending: add your Supabase publishable key to index.html.');return;}
+ if(!byId('accountForm').reportValidity())return;
+ lock(true);status('Creating account…');
+ try{
+  const {data,error}=await client.auth.signUp({email:byId('accountEmail').value.trim(),password:byId('accountPassword').value,options:{emailRedirectTo:location.origin+location.pathname}});
+  if(error)throw error;
+  byId('accountPassword').value='';
+  status(data.session?'Account created and signed in.':'Check your email and confirm your account before logging in.');
+ }catch(e){status('Registration failed: '+e.message);}finally{lock(false);}
+});
+byId('logoutBtn').addEventListener('click',async()=>{
+ if(!client||pending)return;
+ lock(true);
+ try{const {error}=await client.auth.signOut();if(error)throw error;status('Logged out.');}catch(e){status('Logout failed: '+e.message);}finally{lock(false);}
+});
+if(!configured){status('Account setup pending: Supabase publishable key must be added. Free compression still works.');}
+else{
+ try{
+  client=createClient(SUPABASE_URL,SUPABASE_PUBLIC_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+  client.auth.onAuthStateChange((_event,session)=>{render(session?.user??null);if(session?.user)setTimeout(()=>void refreshPoints(),0);});
+  const {data,error}=await client.auth.getUser();
+  if(error&&error.name!=='AuthSessionMissingError')status('Account session: '+error.message);
+  render(data?.user??null);
+  if(data?.user)await refreshPoints();
+ }catch(e){status('Could not initialize account login: '+e.message);}
+}
 </script>
 </body>
 </html>
