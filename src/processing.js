@@ -16,43 +16,19 @@ export async function optimizeVideo(file, onProgress = () => {}) {
   const onFFmpegProgress = ({ progress }) => {
     if (Number.isFinite(progress)) onProgress(Math.max(4, Math.min(96, Math.round(progress * 92))));
   };
-  onProgress(2);
-
-// Read video before loading FFmpeg
-let fileData;
-
-onProgress(2);
-
-// Read video before loading FFmpeg
-let fileData;
-
-try {
-  fileData = new Uint8Array(await file.arrayBuffer());
-} catch {
-  throw new Error(
-    'FILE_READ_FAILED: Cannot read video. Try selecting a local MP4 from Downloads.'
-  );
-}
-
-if (!ffmpeg.loaded) {
-  const baseUrl = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm';
-
-  await ffmpeg.load({
-    coreURL: await toBlobURL(`${baseUrl}/ffmpeg-core.js`, 'text/javascript'),
-    wasmURL: await toBlobURL(`${baseUrl}/ffmpeg-core.wasm`, 'application/wasm'),
-  });
-}
-
-if (!ffmpeg.loaded) {
-  const baseUrl = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm';
-
-  await ffmpeg.load({
-    coreURL: await toBlobURL(`${baseUrl}/ffmpeg-core.js`, 'text/javascript'),
-    wasmURL: await toBlobURL(`${baseUrl}/ffmpeg-core.wasm`, 'application/wasm'),
-  });
-}
+  try {
+    onProgress(2);
+    if (!ffmpeg.loaded) {
+      const baseUrl = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm';
+      await ffmpeg.load({
+        coreURL: await toBlobURL(`${baseUrl}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${baseUrl}/ffmpeg-core.wasm`, 'application/wasm'),
+      });
+    }
     ffmpeg.on('progress', onFFmpegProgress);
-    
+    const fileData = new Uint8Array(
+      await file.arrayBuffer().catch(() => { throw new Error('FILE_READ_FAILED: Browser cannot read selected video'); })
+    );
     await ffmpeg.writeFile(inputName, fileData);
     // Exact MAX QUALITY command from Replit working backup:
     const args = [
